@@ -3028,6 +3028,133 @@ pub const Lua = opaque {
         }
     }
 
+    pub fn pushPointer(lua: *Lua, value: anytype) !void {
+        const info = @typeInfo(@TypeOf(value)).Pointer;
+        if (comptime isTypeString(info)) {
+            try lua.pushAnyString(value);
+        } else switch (info.size) {
+            .One => {
+                if (info.is_const) {
+                    @compileLog(value);
+                    @compileLog("Lua cannot guarantee that references will not be modified");
+                    @compileError("Pointer must not be const");
+                }
+                lua.pushLightUserdata(@ptrCast(value));
+            },
+            .C, .Many => {
+                lua.createTable(std.mem.len(value), 0);
+                for (value, 0..) |index_value, i| {
+                    try lua.pushAny(i + 1);
+                    try lua.pushAny(index_value);
+                    lua.setTable(-3);
+                }
+            },
+            .Slice => {
+                lua.createTable(value.len, 0);
+                for (value, 0..) |index_value, i| {
+                    try lua.pushAny(i + 1);
+                    try lua.pushAny(index_value);
+                    lua.setTable(-3);
+                }
+            },
+        }
+    }
+
+    pub fn pushArray(lua: *Lua, value: anytype) !void {
+        const info = @typeInfo(@TypeOf(value)).Array;
+        lua.createTable(info.len, 0);
+        for (value, 0..) |index_value, i| {
+            try lua.pushAny(i + 1);
+            try lua.pushAny(index_value);
+            lua.setTable(-3);
+        }
+    }
+
+    pub fn pushZigVector(lua: *Lua, value: anytype) !void {
+        const info = @typeInfo(@TypeOf(value)).Vector;
+        try lua.pushArray(@as([info.len]info.child, value));
+    }
+
+    pub fn pushEnumTag(lua: *Lua, value: anytype) void {
+        _ = lua.pushStringZ(@tagName(value));
+    }
+
+    pub fn pushEnumValue(lua: *Lua, value: anytype) void {
+        lua.pushInteger(@intCast(@intFromEnum(value)));
+    }
+
+    pub fn pushOptional(lua: *Lua, value: anytype) !void {
+        if (value == null) {
+            lua.pushNil();
+        } else {
+            try lua.pushAny(value.?);
+        }
+    }
+
+    pub fn pushStruct(lua: *Lua, value: anytype, comptime include_functions: bool) !void {
+        const T = @TypeOf(value);
+        const info = @typeInfo(T).Struct;
+        comptime var table_length = info.fields.len;
+        comptime var function_names: []const [:0]const u8 = &.{};
+        if (include_functions) {
+            comptime for (info.decls) |decl| {
+                const decl_value = @field(T, decl.name);
+                if (@typeInfo(@TypeOf(decl_value)) == .Fn) {
+                    table_length += 1;
+                    const name: []const [:0]const u8 = &.{decl.name};
+                    function_names = function_names ++ name;
+                }
+            };
+        }
+
+        lua.createTable(0, table_length);
+        inline for (info.fields) |field| {
+            try lua.pushAny(field.name);
+            try lua.pushAny(@field(value, field.name));
+            lua.setTable(-3);
+        }
+
+        inline for (function_names) |name| {
+            try lua.pushAny(name);
+            lua.autoPushFunction(@field(T, name));
+            lua.setTable(-3);
+        }
+    }
+
+    pub fn pushUnion(lua: *Lua, value: anytype, comptime include_functions: bool) !void {
+        const T = @TypeOf(value);
+        const info = @typeInfo(T).Struct;
+        comptime var table_length = info.fields.len;
+        comptime var function_names: []const [:0]const u8 = &.{};
+        if (include_functions) {
+            comptime for (info.decls) |decl| {
+                const decl_value = @field(T, decl.name);
+                if (@typeInfo(@TypeOf(decl_value)) == .Fn) {
+                    table_length += 1;
+                    const name: []const [:0]const u8 = &.{decl.name};
+                    function_names = function_names ++ name;
+                }
+            };
+        }
+
+        lua.createTable(0, table_length);
+        errdefer lua.pop(1);
+        try lua.pushAnyString(@tagName(value));
+
+        inline for (info.fields) |field| {
+            if (std.mem.eql(u8, field.name, @tagName(value))) {
+                try lua.pushAny(@field(value, field.name));
+            }
+        }
+        lua.setTable(-3);
+
+        inline for (function_names) |name| {
+            try lua.pushAny(name);
+            lua.autoPushFunction(@field(T, name));
+            lua.setTable(-3);
+        }
+    }
+
     /// Pushes any valid zig value onto the stack,
     /// Works with ints, floats, booleans, structs,
     /// tagged unions, optionals, and strings
@@ -3039,80 +3166,29 @@ pub const Lua = opaque {
             .Float, .ComptimeFloat => {
                 lua.pushNumber(@floatCast(value));
             },
-            .Pointer => |info| {
-                if (comptime isTypeString(info)) {
-                    try lua.pushAnyString(value);
-                } else switch (info.size) {
-                    .One => {
-                        if (info.is_const) {
-                            @compileLog(value);
-                            @compileLog("Lua cannot guarantee that references will not be modified");
-                            @compileError("Pointer must not be const");
-                        }
-                        lua.pushLightUserdata(@ptrCast(value));
-                    },
-                    .C, .Many => {
-                        lua.createTable(std.mem.len(value), 0);
-                        for (value, 0..) |index_value, i| {
-                            try lua.pushAny(i + 1);
-                            try lua.pushAny(index_value);
-                            lua.setTable(-3);
-                        }
-                    },
-                    .Slice => {
-                        lua.createTable(value.len, 0);
-                        for (value, 0..) |index_value, i| {
-                            try lua.pushAny(i + 1);
-                            try lua.pushAny(index_value);
-                            lua.setTable(-3);
-                        }
-                    },
-                }
+            .Pointer => {
+                try lua.pushPointer(value);
             },
-            .Array => |info| {
-                lua.createTable(info.len, 0);
-                for (value, 0..) |index_value, i| {
-                    try lua.pushAny(i + 1);
-                    try lua.pushAny(index_value);
-                    lua.setTable(-3);
-                }
+            .Array => {
+                try lua.pushArray(value);
             },
-            .Vector => |info| {
-                try lua.pushAny(@as([info.len]info.child, value));
+            .Vector => {
+                try lua.pushVector(value);
             },
             .Bool => {
                 lua.pushBoolean(value);
             },
             .Enum => {
-                _ = lua.pushStringZ(@tagName(value));
+                lua.pushEnumTag(value);
             },
             .Optional, .Null => {
-                if (value == null) {
-                    lua.pushNil();
-                } else {
-                    try lua.pushAny(value.?);
-                }
+                try lua.pushOptional(value);
             },
-            .Struct => |info| {
-                lua.createTable(0, info.fields.len);
-                inline for (info.fields) |field| {
-                    try lua.pushAny(field.name);
-                    try lua.pushAny(@field(value, field.name));
-                    lua.setTable(-3);
-                }
+            .Struct => {
+                try lua.pushStruct(value);
             },
-            .Union => |info| {
-                if (info.tag_type == null) @compileError("Parameter type is not a tagged union");
-                lua.createTable(0, 1);
-                errdefer lua.pop(1);
-                try lua.pushAnyString(@tagName(value));
-
-                inline for (info.fields) |field| {
-                    if (std.mem.eql(u8, field.name, @tagName(value))) {
-                        try lua.pushAny(@field(value, field.name));
-                    }
-                }
-                lua.setTable(-3);
+            .Union => {
+                try lua.pushUnion(value);
             },
             .Fn => {
                 lua.autoPushFunction(value);

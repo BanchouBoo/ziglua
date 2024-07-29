@@ -3051,8 +3051,16 @@ pub const Lua = opaque {
                         }
                         lua.pushLightUserdata(@ptrCast(value));
                     },
-                    .C, .Many, .Slice => {
-                        lua.createTable(0, 0);
+                    .C, .Many => {
+                        lua.createTable(std.mem.len(value), 0);
+                        for (value, 0..) |index_value, i| {
+                            try lua.pushAny(i + 1);
+                            try lua.pushAny(index_value);
+                            lua.setTable(-3);
+                        }
+                    },
+                    .Slice => {
+                        lua.createTable(value.len, 0);
                         for (value, 0..) |index_value, i| {
                             try lua.pushAny(i + 1);
                             try lua.pushAny(index_value);
@@ -3061,8 +3069,8 @@ pub const Lua = opaque {
                     },
                 }
             },
-            .Array => {
-                lua.createTable(0, 0);
+            .Array => |info| {
+                lua.createTable(info.len, 0);
                 for (value, 0..) |index_value, i| {
                     try lua.pushAny(i + 1);
                     try lua.pushAny(index_value);
@@ -3086,7 +3094,7 @@ pub const Lua = opaque {
                 }
             },
             .Struct => |info| {
-                lua.createTable(0, 0);
+                lua.createTable(0, info.fields.len);
                 inline for (info.fields) |field| {
                     try lua.pushAny(field.name);
                     try lua.pushAny(@field(value, field.name));
@@ -3095,7 +3103,7 @@ pub const Lua = opaque {
             },
             .Union => |info| {
                 if (info.tag_type == null) @compileError("Parameter type is not a tagged union");
-                lua.createTable(0, 0);
+                lua.createTable(0, 1);
                 errdefer lua.pop(1);
                 try lua.pushAnyString(@tagName(value));
 

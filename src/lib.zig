@@ -3413,8 +3413,22 @@ pub const Lua = opaque {
 
     ///generates the interface for and pushes a function to the stack
     pub fn autoPushFunction(lua: *Lua, function: anytype) void {
-        const Interface = GenerateInterface(function);
-        lua.pushFunction(wrap(Interface.interface));
+        const T = @TypeOf(function);
+        return switch (T) {
+            ZigFn,
+            ZigHookFn,
+            ZigContFn,
+            ZigReaderFn,
+            ZigUserdataDtorFn,
+            ZigUserAtomCallbackFn,
+            ZigWarnFn,
+            ZigWriterFn,
+            => lua.pushFunction(wrap(function)),
+            else => {
+                const Interface = GenerateInterface(function);
+                lua.pushFunction(wrap(Interface.interface));
+            },
+        };
     }
 
     ///get any lua global

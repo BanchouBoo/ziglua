@@ -7,7 +7,7 @@ const ziglua = @import("ziglua");
 // it is used multiple times throughout a file.
 const Lua = ziglua.Lua;
 
-// A Zig function called by Lua must accept a single *Lua parameter and must return an i32.
+// A Zig function called by Lua must accept a single *Lua parameter and must return an i32 (an error union is allowed)
 // This is the Zig equivalent of the lua_CFunction typedef int (*lua_CFunction) (lua_State *L) in the C API
 fn adder(lua: *Lua) i32 {
     const a = lua.toInteger(1) catch 0;
@@ -22,9 +22,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.deinit();
 
     // Initialize The Lua vm and get a reference to the main thread
-    //
-    // Passing a Zig allocator to the Lua state requires a stable pointer
-    var lua = try Lua.init(&allocator);
+    var lua = try Lua.init(allocator);
     defer lua.deinit();
 
     // Push the adder function to the Lua stack.
@@ -39,11 +37,14 @@ pub fn main() anyerror!void {
 
     // Call the function. It accepts 2 arguments and returns 1 value
     // We use catch unreachable because we can verify this function call will not fail
-    lua.protectedCall(2, 1, 0) catch unreachable;
+    lua.protectedCall(.{ .args = 2, .results = 1 }) catch unreachable;
 
     // The result of the function call is on the stack.
-    // Use toInteger to read the integer at index 1
-    std.debug.print("the result: {}\n", .{lua.toInteger(1) catch unreachable});
+    // Use toInteger to read the integer at index -1.
+    // Using a negative stack offset will get the value relative to the top of the stack.
+    // Because nothing else is on the stack, index 1 would also work here. The negative index can
+    // be more reliable when the contents of the stack before the function call are unknown.
+    std.debug.print("the result: {}\n", .{lua.toInteger(-1) catch unreachable});
 
     // We can also register the function to a global and run from a Lua "program"
     lua.pushFunction(ziglua.wrap(adder));

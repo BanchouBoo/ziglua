@@ -14,7 +14,7 @@ pub fn main() anyerror!void {
     // Initialize The Lua vm and get a reference to the main thread
     //
     // Passing a Zig allocator to the Lua state requires a stable pointer
-    var lua = try ziglua.Lua.init(&allocator);
+    var lua = try ziglua.Lua.init(allocator);
     defer lua.deinit();
 
     // Open all Lua standard libraries
@@ -50,7 +50,7 @@ pub fn main() anyerror!void {
         };
 
         // Execute a line of Lua code
-        lua.protectedCall(0, 0, 0) catch {
+        lua.protectedCall(.{}) catch {
             // Error handling here is the same as above.
             try stdout.print("{s}\n", .{lua.toString(-1) catch unreachable});
             lua.pop(1);

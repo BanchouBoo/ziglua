@@ -3091,67 +3091,79 @@ pub const Lua = opaque {
         }
     }
 
-    pub fn pushStruct(lua: *Lua, value: anytype, comptime include_functions: bool) !void {
+    fn getFunctionNames(comptime T: type) []const [:0]const u8 {
+        comptime var result: []const [:0]const u8 = &.{};
+        comptime for (std.meta.declarations(T)) |decl| {
+            const value = @field(T, decl.name);
+            if (@typeInfo(@TypeOf(value)) == .Fn) {
+                const name: []const [:0]const u8 = &.{decl.name};
+                result = result ++ name;
+            }
+        };
+        return result;
+    }
+
+    pub fn pushFunctionsFromType(lua: *Lua, comptime T: type, into_struct: bool) void {
+        const function_names = comptime getFunctionNames(T);
+        var index: i32 = undefined;
+        if (into_struct) {
+            index = -3;
+            lua.createTable(0, @intCast(function_names.len));
+        } else {
+            index = if (lua.getTop() > 0) -3 else globals_index;
+        }
+        inline for (function_names) |name| {
+            _ = lua.pushStringZ(name);
+            lua.autoPushFunction(@field(T, name));
+            lua.setTable(index);
+        }
+    }
+
+    pub fn pushStruct(lua: *Lua, value: anytype, include_functions: bool) !void {
         const T = @TypeOf(value);
         const info = @typeInfo(T).Struct;
-        comptime var table_length = info.fields.len;
-        comptime var function_names: []const [:0]const u8 = &.{};
+
+        var table_length = info.fields.len;
         if (include_functions) {
-            comptime for (info.decls) |decl| {
-                const decl_value = @field(T, decl.name);
-                if (@typeInfo(@TypeOf(decl_value)) == .Fn) {
-                    table_length += 1;
-                    const name: []const [:0]const u8 = &.{decl.name};
-                    function_names = function_names ++ name;
-                }
-            };
+            table_length += getFunctionNames(T).len;
         }
 
-        lua.createTable(0, table_length);
+        lua.createTable(0, @intCast(table_length));
         inline for (info.fields) |field| {
-            try lua.pushAny(field.name);
+            _ = lua.pushStringZ(field.name);
             try lua.pushAny(@field(value, field.name));
             lua.setTable(-3);
         }
 
-        inline for (function_names) |name| {
-            try lua.pushAny(name);
-            lua.autoPushFunction(@field(T, name));
-            lua.setTable(-3);
+        if (include_functions) {
+            lua.pushFunctionsFromType(T, false);
         }
     }
 
     pub fn pushUnion(lua: *Lua, value: anytype, comptime include_functions: bool) !void {
         const T = @TypeOf(value);
-        const info = @typeInfo(T).Struct;
-        comptime var table_length = info.fields.len;
-        comptime var function_names: []const [:0]const u8 = &.{};
+        const info = @typeInfo(T).Union;
+        if (info.tag_type == null) @compileError("Parameter type is not a tagged union");
+
+        var table_length = info.fields.len;
         if (include_functions) {
-            comptime for (info.decls) |decl| {
-                const decl_value = @field(T, decl.name);
-                if (@typeInfo(@TypeOf(decl_value)) == .Fn) {
-                    table_length += 1;
-                    const name: []const [:0]const u8 = &.{decl.name};
-                    function_names = function_names ++ name;
-                }
-            };
+            table_length += getFunctionNames(T).len;
         }
 
-        lua.createTable(0, table_length);
+        lua.createTable(0, @intCast(table_length));
         errdefer lua.pop(1);
-        try lua.pushAnyString(@tagName(value));
+        const tag_name = @tagName(value);
+        _ = lua.pushStringZ(tag_name);
 
         inline for (info.fields) |field| {
-            if (std.mem.eql(u8, field.name, @tagName(value))) {
+            if (std.mem.eql(u8, field.name, tag_name)) {
                 try lua.pushAny(@field(value, field.name));
             }
         }
         lua.setTable(-3);
 
-        inline for (function_names) |name| {
-            try lua.pushAny(name);
-            lua.autoPushFunction(@field(T, name));
-            lua.setTable(-3);
+        if (include_functions) {
+            lua.pushFunctionsFromType(T, false);
         }
     }
 

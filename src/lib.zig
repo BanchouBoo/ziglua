@@ -4340,7 +4340,7 @@ pub const Lua = opaque {
     }
 
     pub fn pushPointer(lua: *Lua, value: anytype) !void {
-        const info = @typeInfo(@TypeOf(value)).Pointer;
+        const info = @typeInfo(@TypeOf(value)).pointer;
         if (comptime isTypeString(info)) {
             try lua.pushAnyString(value);
         } else switch (info.size) {
@@ -4353,7 +4353,7 @@ pub const Lua = opaque {
                 lua.pushLightUserdata(@ptrCast(value));
             },
             .C, .Many => {
-                lua.createTable(std.mem.len(value), 0);
+                lua.createTable(@intCast(std.mem.len(value)), 0);
                 for (value, 0..) |index_value, i| {
                     try lua.pushAny(i + 1);
                     try lua.pushAny(index_value);
@@ -4361,7 +4361,7 @@ pub const Lua = opaque {
                 }
             },
             .Slice => {
-                lua.createTable(value.len, 0);
+                lua.createTable(@intCast(value.len), 0);
                 for (value, 0..) |index_value, i| {
                     try lua.pushAny(i + 1);
                     try lua.pushAny(index_value);
@@ -4372,7 +4372,7 @@ pub const Lua = opaque {
     }
 
     pub fn pushArray(lua: *Lua, value: anytype) !void {
-        const info = @typeInfo(@TypeOf(value)).Array;
+        const info = @typeInfo(@TypeOf(value)).array;
         lua.createTable(info.len, 0);
         for (value, 0..) |index_value, i| {
             try lua.pushAny(i + 1);
@@ -4382,7 +4382,7 @@ pub const Lua = opaque {
     }
 
     pub fn pushZigVector(lua: *Lua, value: anytype) !void {
-        const info = @typeInfo(@TypeOf(value)).Vector;
+        const info = @typeInfo(@TypeOf(value)).vector;
         try lua.pushArray(@as([info.len]info.child, value));
     }
 
@@ -4406,7 +4406,7 @@ pub const Lua = opaque {
         comptime var result: []const [:0]const u8 = &.{};
         comptime for (std.meta.declarations(T)) |decl| {
             const value = @field(T, decl.name);
-            if (@typeInfo(@TypeOf(value)) == .Fn) {
+            if (@typeInfo(@TypeOf(value)) == .@"fn") {
                 const name: []const [:0]const u8 = &.{decl.name};
                 result = result ++ name;
             }
@@ -4432,7 +4432,7 @@ pub const Lua = opaque {
 
     pub fn pushStruct(lua: *Lua, value: anytype, include_functions: bool) !void {
         const T = @TypeOf(value);
-        const info = @typeInfo(T).Struct;
+        const info = @typeInfo(T).@"struct";
 
         var table_length = info.fields.len;
         if (include_functions) {
@@ -4453,10 +4453,10 @@ pub const Lua = opaque {
 
     pub fn pushUnion(lua: *Lua, value: anytype, comptime include_functions: bool) !void {
         const T = @TypeOf(value);
-        const info = @typeInfo(T).Union;
+        const info = @typeInfo(T).@"union";
         if (info.tag_type == null) @compileError("Parameter type is not a tagged union");
 
-        var table_length = 1;
+        var table_length: usize = 1;
         if (include_functions) {
             table_length += getFunctionNames(T).len;
         }
@@ -4496,7 +4496,7 @@ pub const Lua = opaque {
                 try lua.pushArray(value);
             },
             .vector => {
-                try lua.pushVector(value);
+                try lua.pushZigVector(value);
             },
             .bool => {
                 lua.pushBoolean(value);
@@ -4508,10 +4508,10 @@ pub const Lua = opaque {
                 try lua.pushOptional(value);
             },
             .@"struct" => {
-                try lua.pushStruct(value);
+                try lua.pushStruct(value, false);
             },
             .@"union" => {
-                try lua.pushUnion(value);
+                try lua.pushUnion(value, false);
             },
             .@"fn" => {
                 lua.autoPushFunction(value);

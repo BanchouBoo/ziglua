@@ -4821,16 +4821,17 @@ pub const Lua = opaque {
 
     ///generates the interface for and pushes a function to the stack
     pub fn autoPushFunction(lua: *Lua, function: anytype) void {
-        const T = @TypeOf(function);
-        return switch (T) {
-            ZigFn,
-            ZigHookFn,
-            ZigContFn,
-            ZigReaderFn,
-            ZigUserdataDtorFn,
-            ZigUserAtomCallbackFn,
-            ZigWarnFn,
-            ZigWriterFn,
+        const Args = std.meta.ArgsTuple(@TypeOf(function));
+        return switch (Args) {
+            Tuple(&.{*Lua}),
+            Tuple(&.{ *Lua, Event, *DebugInfo }),
+            Tuple(&.{ *Lua, Status, Context }),
+            Tuple(&.{ *Lua, *anyopaque }),
+            Tuple(&.{*anyopaque}),
+            Tuple(&.{ *Lua, i32 }),
+            Tuple(&.{[]const u8}),
+            Tuple(&.{ ?*anyopaque, []const u8, bool }),
+            Tuple(&.{ *Lua, []const u8, *anyopaque }),
             => lua.pushFunction(wrap(function)),
             else => {
                 const Interface = GenerateInterface(function);
